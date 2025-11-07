@@ -1,0 +1,10 @@
+{
+  "domain": "indevolt",
+  "name": "INDEVOLT",
+  "version": "1.0",
+  "requirements": ["aiohttp"],
+  "dependencies": [],
+  "codeowners": [],
+  "config_flow": true,
+  "iot_class": "local_polling"
+}
