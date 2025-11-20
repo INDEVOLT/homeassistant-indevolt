@@ -259,7 +259,7 @@ SENSORS_GEN2: Final = (
         state_class=SensorStateClass.MEASUREMENT
     ),
     IndevoltSensorEntityDescription(
-        key="6009",
+        key="6002",
         name="Battery SOC",
         native_unit_of_measurement=PERCENTAGE,
         device_class=SensorDeviceClass.BATTERY,
@@ -402,3 +402,4 @@ class IndevoltSensorEntity(CoordinatorEntity, SensorEntity):
             return self.entity_description.state_mapping.get(raw_value)
 
         return raw_value * self.entity_description.coefficient
+
