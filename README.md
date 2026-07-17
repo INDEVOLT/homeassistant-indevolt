@@ -54,10 +54,21 @@ config directory/
 **Note**: All custom integrations must be placed under `custom_components`, otherwise HA will not be able to recognize them.
 
 
-## Step 4: Add the integration file
+## Step 4: Add the integration files
+
+<!--
+原因：旧说明容易让用户复制下方安装清单之外的内容，而且清单中的 services.yaml
+文件名不准确，可能造成安装结果不一致。
+目标：让用户只需按照一份明确的文件清单即可完成安装。
+实现：把“排除个别文件”改为“只复制清单中列出的文件”，并纠正 services.yaml 的名称。
+影响：安装步骤更明确，可避免无关内容进入集成目录；已有设置和设备不受影响。
+边界：这里只调整安装说明和文件清单，不改变集成功能、配置方式或目录位置。
+验证：下方清单已与 Home Assistant 安装时需要的文件逐项核对。
+-->
 
 1. Create the `indevolt` directory in the config directory.
-2. Copy all files from the unzipped folder (except `README.md`) into the `indevolt` directory.
+2. Copy only the integration files shown below into the `indevolt` directory.
+   Do not copy files or folders that are not shown in this list.
 
 Once installed correctly, your configuration directory should look like this:
 
@@ -75,7 +86,7 @@ config directory/
         ├── number.py
         ├── select.py
         ├── sensor.py
-        ├── service.yaml
+        ├── services.yaml
         ├── switch.py
 ```
 
@@ -128,13 +139,33 @@ Select the INDEVOLT integration to display the device and entity information.
 
 ## Update integration
 
-1. Download the latest version of the integration file.
-2. Replace the files in `custom_components/indevolt`.
-3. Click the three-dot menu  next to the previously added device and select **Delete**.
-   <img width="600" alt="image" src="https://github.com/user-attachments/assets/91042043-4949-46b8-8b5b-4ee0027a0a30" />
+<!--
+原因：旧升级说明要求删除并重新添加集成，可能导致设备、实体名称和自动化引用变化。
+目标：提供无需重建设备且能够恢复旧版本的升级路径。
+实现：升级前完整备份旧目录，整体替换集成文件，保留现有集成条目，重启后核对原设备和实体。
+影响：升级失败时可以整体恢复旧目录；正常升级不需要重建设备，也不改变配置格式。
+边界：不迁移用户数据、不修改现有实体标识，也不自动删除任何配置。
+验证：升级后可通过 Home Assistant 界面确认原有集成条目、设备和实体仍然存在。
+风险：混用新旧版本文件可能导致集成无法正常加载，因此必须整体替换集成目录。
+回退：恢复完整备份目录并重启 Home Assistant，再确认原有集成、设备和实体正常显示。
+-->
 
-5. Restart Home Assistant.
-6. Click the button **Add Entry** and follow the same device setup process to add the device again.
+1. Back up the entire existing `custom_components/indevolt` directory outside
+   `custom_components`, and record the currently installed version.
+2. Download the new integration files and replace the installed directory with
+   only the integration files shown in the installation tree above. Do not mix
+   files from different versions or copy anything that is not listed.
+3. Keep the existing INDEVOLT integration entry, devices, and entities. This
+   update does not require deleting or adding the entry again.
+4. Restart Home Assistant.
+5. Confirm that INDEVOLT loads without related errors and that the existing
+   integration entry, devices, and entities are still present.
+
+### Roll back an update
+
+If validation fails, replace the entire `custom_components/indevolt` directory
+with the backup, restart Home Assistant, and confirm that the original
+integration entry, devices, and entities load normally.
 
 
 ## Create Automation: Set Real-Time Control
@@ -164,9 +195,7 @@ Select the INDEVOLT integration to display the device and entity information.
     <img width="300" alt="image" src="https://github.com/user-attachments/assets/bedb1966-513f-4246-b7c4-5f5c579a2e3f" />
     <img width="300" alt="image" src="https://github.com/user-attachments/assets/a6ffeff5-e5c7-45a4-8aa5-5a948ce04b36" />
 
-
 9. Click **Save** to complete the automation setup.
-
 
 ## FAQ
 
