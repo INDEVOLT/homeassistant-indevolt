@@ -3,13 +3,20 @@ from homeassistant.const import Platform
 DOMAIN = "indevolt"
 DEFAULT_PORT = 8080
 DEFAULT_SCAN_INTERVAL = 30
-# 原因：Action 与 Gen2 number 都要执行同一个产品上限，重复数值会产生配置漂移风险。
-# 目标：建立唯一 Python 运行时真源，让两个入口共同引用评审确认的 10800 W 边界。
-# 实现：在 const.py 定义命名常量，由服务 handler 和 Gen2 number 同时导入使用。
-# 影响：两个入口调整上限时只需修改一处，降低维护和审核成本。
-# 边界：不改变扫描周期、平台列表、设备协议或任何非目标功率限制。
-# 验证：测试直接断言常量为 10800，并核对 Action selector 与 Gen2 描述使用同一值。
-# 方案取舍：使用共享常量而不是在两个 Python 文件中分别写死数值。
+# Reason: The Action and Gen2 number paths must enforce the same product limit;
+# duplicating the value would create configuration-drift risk.
+# Goal: Establish one Python runtime source of truth so both entry points use the
+# reviewed 10800 W boundary.
+# Implementation: Define a named constant in const.py and import it in both the
+# service handler and the Gen2 number implementation.
+# Impact: Future limit changes require one edit, reducing maintenance and review
+# cost for both entry points.
+# Scope: This does not change the scan interval, platform list, device protocol,
+# or any non-target power limit.
+# Validation: Tests assert the constant is 10800 and verify that the Action
+# selector and Gen2 description use the same value.
+# Trade-off: Use a shared constant instead of hard-coding the value separately in
+# two Python files.
 MAX_REAL_TIME_CONTROL_POWER = 10800
 PLATFORMS = [
     Platform.SENSOR,

@@ -1,8 +1,11 @@
 """Home Assistant integration for indevolt device."""
 
-# 调整原因：future import 位于模块说明之前时，该字符串不会被识别为模块 docstring。
-# 实现方式：把既有模块说明移动到文件首行，再紧接 future import，满足 Python 位置约束。
-# 影响边界：只修正模块元数据和静态检查结果，不改变集成加载或服务执行行为。
+# Reason: A string placed after a future import is not recognized as the module
+# docstring.
+# Implementation: Move the existing module description to the first line and put
+# the future import immediately after it, satisfying Python's placement rules.
+# Impact: This only corrects module metadata and static-check results; integration
+# loading and service execution are unchanged.
 from __future__ import annotations
 
 import logging
@@ -12,9 +15,12 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
-# 引入原因：Action 与 number 若分别写死 10800，后续维护可能出现入口上限漂移。
-# 使用方式：服务 handler 在目标解析和设备写入前使用该常量判断实时功率上限。
-# 影响边界：只新增只读常量引用；DOMAIN、PLATFORMS、加载顺序和导入副作用不变。
+# Reason: Hard-coding 10800 separately in the Action and number paths could let
+# their limits drift during later maintenance.
+# Usage: The service handler uses this constant to enforce the real-time power
+# limit before target resolution and device writes.
+# Impact: This adds only a read-only constant reference; DOMAIN, PLATFORMS, load
+# order, and import side effects are unchanged.
 from .const import DOMAIN, MAX_REAL_TIME_CONTROL_POWER, PLATFORMS
 from .coordinator import IndevoltDeviceUpdateCoordinator
 
@@ -86,17 +92,27 @@ def _register_services(hass: HomeAssistant) -> None:
 
         mode: str = call.data["mode"]
 
-        # 原因：services.yaml 的 selector 只约束 UI，直接调用服务仍可能提交 10801 W。
-        # 目标：让所有 SolidFlex/PowerFlex 实时控制入口执行同一写前上限保护。
-        # 实现：读取 mode 后，以 service 名称和 Real-Time Control 模式限定作用域，再在
-        # registry、ConfigEntry 和设备循环之前比较共享常量，越界时立即抛出验证错误。
-        # 影响：10801 W 及以上会提前得到明确验证错误；不超过 10800 W 的请求继续使用
-        # 原点位、原 payload 和原刷新顺序。
-        # 边界：BK Action、非实时控制模式、多目标顺序、47005/47015 和刷新合同不变。
-        # 验证：10801 W 用例把 registry 访问设为失败哨兵，并断言 API 写入和刷新均为零。
-        # 方案取舍：在 handler 最早公共入口校验，而不是只依赖 UI 或在 API 层扩大影响面。
-        # 风险：判断若移入设备循环，可能出现前序目标已经写入、后序目标才失败的部分成功。
-        # 回退：移除该写前判断和共享常量引用即可恢复旧上限行为，不涉及持久化数据迁移。
+        # Reason: The services.yaml selector constrains only the UI, so a direct
+        # service call could still submit 10801 W.
+        # Goal: Apply the same pre-write limit to every SolidFlex/PowerFlex
+        # real-time control entry point.
+        # Implementation: After reading mode, restrict the check to this service
+        # and Real-Time Control, then compare against the shared constant before
+        # registry access, ConfigEntry resolution, and the device loop; raise a
+        # validation error immediately when the value is out of range.
+        # Impact: Requests of 10801 W or more fail early with a clear validation
+        # error; requests at or below 10800 W keep the original points, payload,
+        # and refresh order.
+        # Scope: BK Actions, non-real-time modes, multi-target ordering, points
+        # 47005/47015, and the refresh contract are unchanged.
+        # Validation: The 10801 W test replaces registry access with a failure
+        # sentinel and asserts that API writes and refreshes remain at zero.
+        # Trade-off: Validate at the handler's earliest common entry point instead
+        # of relying only on the UI or broadening the change at the API layer.
+        # Risk: Moving the check into the device loop could create partial success,
+        # with an earlier target written before a later target fails.
+        # Rollback: Remove this pre-write check and the shared constant reference to
+        # restore the old limit behavior; no persistent-data migration is involved.
         if (
             call.service == "set_solidflex_powerflex_work_mode"
             and mode == "Real-Time Control"

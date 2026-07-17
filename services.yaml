@@ -30,12 +30,18 @@ set_solidflex_powerflex_work_mode:
             - Charging
             - Discharging
 
-    # 原因：若 selector 仍保持 2400，HA 界面会在 Python 写前保护之前阻止合法的更高输入。
-    # 目标：让 SolidFlex/PowerFlex Action 的可见上限与共享 10800 W 运行时边界一致。
-    # 实现：只把该 power 字段的说明和 selector.max 从 2400 改为 10800。
-    # 影响：Action UI 可选择更高功率，step 仍为 10 W；Python 继续承担绕过 UI 的保护。
-    # 边界：min=50、BK selector、SOC 字段、设备协议和其他服务字段不变。
-    # 验证：YAML 一致性测试核对完整 selector，并同时断言 BK selector 保持 0～1200 W。
+    # Reason: If the selector remained at 2400, the HA UI would block valid higher
+    # inputs before Python's pre-write guard could evaluate them.
+    # Goal: Align the visible SolidFlex/PowerFlex Action maximum with the shared
+    # 10800 W runtime boundary.
+    # Implementation: Change only this power field's description and selector.max
+    # from 2400 to 10800.
+    # Impact: The Action UI can select higher power while the step remains 10 W;
+    # Python continues to guard callers that bypass the UI.
+    # Scope: min=50, the BK selector, the SOC field, the device protocol, and all
+    # other service fields are unchanged.
+    # Validation: The YAML consistency test checks the full selector and also
+    # asserts that the BK selector remains at 0 through 1200 W.
     power:
       name: Power (W)
       description: 50~10800W (Available in Real-time control)

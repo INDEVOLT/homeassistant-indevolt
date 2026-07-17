@@ -57,13 +57,18 @@ config directory/
 ## Step 4: Add the integration files
 
 <!--
-原因：旧说明容易让用户复制下方安装清单之外的内容，而且清单中的 services.yaml
-文件名不准确，可能造成安装结果不一致。
-目标：让用户只需按照一份明确的文件清单即可完成安装。
-实现：把“排除个别文件”改为“只复制清单中列出的文件”，并纠正 services.yaml 的名称。
-影响：安装步骤更明确，可避免无关内容进入集成目录；已有设置和设备不受影响。
-边界：这里只调整安装说明和文件清单，不改变集成功能、配置方式或目录位置。
-验证：下方清单已与 Home Assistant 安装时需要的文件逐项核对。
+Reason: The previous instructions could lead users to copy content outside the
+installation list, and the services.yaml filename in that list was incorrect,
+which could produce inconsistent installations.
+Goal: Let users complete installation by following one explicit file list.
+Implementation: Replace the instruction to exclude selected files with an
+instruction to copy only the listed files, and correct the services.yaml name.
+Impact: The installation steps are clearer and unrelated content is kept out of
+the integration directory; existing settings and devices are unaffected.
+Scope: This changes only the installation instructions and file list, not the
+integration behavior, configuration method, or directory location.
+Validation: The list below was checked item by item against the files required
+to install the Home Assistant integration.
 -->
 
 1. Create the `indevolt` directory in the config directory.
@@ -140,14 +145,24 @@ Select the INDEVOLT integration to display the device and entity information.
 ## Update integration
 
 <!--
-原因：旧升级说明要求删除并重新添加集成，可能导致设备、实体名称和自动化引用变化。
-目标：提供无需重建设备且能够恢复旧版本的升级路径。
-实现：升级前完整备份旧目录，整体替换集成文件，保留现有集成条目，重启后核对原设备和实体。
-影响：升级失败时可以整体恢复旧目录；正常升级不需要重建设备，也不改变配置格式。
-边界：不迁移用户数据、不修改现有实体标识，也不自动删除任何配置。
-验证：升级后可通过 Home Assistant 界面确认原有集成条目、设备和实体仍然存在。
-风险：混用新旧版本文件可能导致集成无法正常加载，因此必须整体替换集成目录。
-回退：恢复完整备份目录并重启 Home Assistant，再确认原有集成、设备和实体正常显示。
+Reason: The previous update instructions required deleting and re-adding the
+integration, which could change devices, entity names, and automation references.
+Goal: Provide an update path that preserves devices and can restore the previous
+version.
+Implementation: Back up the old directory in full, replace the integration files
+as a complete set, retain the existing integration entry, and verify the original
+devices and entities after restarting.
+Impact: A failed update can be reversed by restoring the entire old directory;
+a normal update does not require recreating devices or changing the configuration
+format.
+Scope: This does not migrate user data, modify existing entity identifiers, or
+automatically delete any configuration.
+Validation: After the update, the Home Assistant UI can confirm that the original
+integration entry, devices, and entities are still present.
+Risk: Mixing files from different versions can prevent the integration from
+loading correctly, so the integration directory must be replaced as a complete set.
+Rollback: Restore the complete backup directory, restart Home Assistant, and then
+confirm that the original integration, devices, and entities appear normally.
 -->
 
 1. Back up the entire existing `custom_components/indevolt` directory outside

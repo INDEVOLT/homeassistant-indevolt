@@ -11,14 +11,20 @@ from homeassistant.components.number import (
     NumberMode
 )
 from homeassistant.const import EntityCategory, PERCENTAGE, UnitOfPower
-# 引入原因：number 的直接调用需要使用 HA 标准验证错误阻止越界写入。
-# 使用方式：async_set_native_value 在调用 set_fn 前用该异常终止 10801 W 及以上请求。
-# 影响边界：只改变越界请求的失败位置和错误类型；合法值仍走原 47016 与刷新流程。
+# Reason: Direct number calls need the standard HA validation error to prevent an
+# out-of-range write.
+# Usage: async_set_native_value raises this exception before set_fn for requests
+# of 10801 W or more.
+# Impact: Only the failure point and error type for out-of-range requests change;
+# valid values keep the original point 47016 and refresh flow.
 from homeassistant.exceptions import ServiceValidationError
 
-# 引入原因：number 元数据和运行时校验必须与 Action 使用同一个 10800 W 真源。
-# 使用方式：该常量同时赋给 Gen2 power_setting 最大值，并用于 setter 写前判断。
-# 影响边界：只引入共享只读常量；API、coordinator 和其他实体的初始化不变。
+# Reason: The number metadata and runtime validation must use the same 10800 W
+# source of truth as the Action.
+# Usage: This constant supplies both the Gen2 power_setting maximum and the
+# setter's pre-write check.
+# Impact: This introduces only a shared read-only constant; API, coordinator, and
+# other entity initialization are unchanged.
 from .const import MAX_REAL_TIME_CONTROL_POWER
 from .indevolt_api import IndevoltAPI
 from .coordinator import IndevoltDeviceUpdateCoordinator
@@ -100,12 +106,18 @@ NUMBERS_GEN2 = [
         device_class=NumberDeviceClass.POWER,
         entity_category=EntityCategory.CONFIG,
         native_min_value=50,
-        # 原因：旧元数据最大值 2400 会在 UI 层阻止已经批准的 2401～10800 W 输入。
-        # 目标：让 Gen2 实时功率 number 展示并接受与 Action 相同的共享上限。
-        # 实现：仅把 power_setting.native_max_value 从字面量 2400 改为共享常量。
-        # 影响：HA UI 和实体元数据允许输入至 10800 W，不对请求值截断或换算。
-        # 边界：最小值、步长、单位、47016、其他 Gen2 number 和 BK 动态上限不变。
-        # 验证：两个 Gen2 型号的 setup 用例断言 min=50、max=10800、step=1。
+        # Reason: The old metadata maximum of 2400 blocked approved inputs from
+        # 2401 through 10800 W at the UI layer.
+        # Goal: Make the Gen2 real-time power number expose and accept the same
+        # shared maximum as the Action.
+        # Implementation: Replace only the literal 2400 assigned to
+        # power_setting.native_max_value with the shared constant.
+        # Impact: The HA UI and entity metadata accept input through 10800 W
+        # without truncating or converting the requested value.
+        # Scope: The minimum, step, unit, point 47016, other Gen2 numbers, and BK
+        # dynamic maximums are unchanged.
+        # Validation: Setup tests for both Gen2 models assert min=50, max=10800,
+        # and step=1.
         native_max_value=MAX_REAL_TIME_CONTROL_POWER,
         native_step=1,
         native_unit_of_measurement=UnitOfPower.WATT,
@@ -213,15 +225,24 @@ class IndevoltNumberEntity(IndevoltEntity, NumberEntity):
         return self.entity_description.value_fn(self.coordinator.data)
 
     async def async_set_native_value(self, value: int) -> None:
-        # 原因：实体服务或内部调用可以绕过 native_max_value，因此 UI 元数据不是写入保护。
-        # 目标：让非 BK 的 power_setting 即使绕过 UI 也执行 10800 W 写前保护。
-        # 实现：先按设备型号和 description key 缩小作用域，再在 set_fn 前比较共享常量。
-        # 影响：10801 W 及以上不会调用 47016 或 refresh；合法值仍按原值写入。
-        # 边界：BK number、SOC number、其他功率实体、点位、payload 和刷新方式不变。
-        # 验证：负向用例断言越界时 FakeAPI 写入及两类刷新计数均为零。
-        # 方案取舍：保护放在实体 setter，而非只依赖可绕过的 UI 元数据或修改通用 API。
-        # 风险：校验若放在 set_fn 之后，越界值可能已经发送到 47016，不能再补救。
-        # 回退：移除该条件分支并恢复元数据旧上限即可，不涉及实体注册或存储迁移。
+        # Reason: Entity services or internal callers can bypass native_max_value,
+        # so UI metadata is not a write guard.
+        # Goal: Enforce the 10800 W pre-write limit for non-BK power_setting calls
+        # even when they bypass the UI.
+        # Implementation: Narrow the scope by device model and description key,
+        # then compare with the shared constant before calling set_fn.
+        # Impact: Values of 10801 W or more do not invoke point 47016 or refresh;
+        # valid values are still written unchanged.
+        # Scope: BK numbers, SOC numbers, other power entities, points, payloads,
+        # and refresh behavior are unchanged.
+        # Validation: The negative test asserts zero FakeAPI writes and zero counts
+        # for both refresh methods when the value is out of range.
+        # Trade-off: Put the guard in the entity setter instead of relying only on
+        # bypassable UI metadata or changing the general API.
+        # Risk: If validation ran after set_fn, the out-of-range value might already
+        # have been sent to point 47016 and could not be recalled.
+        # Rollback: Remove this conditional branch and restore the old metadata
+        # maximum; entity registration and stored data require no migration.
         if (
             "BK1600" not in self.coordinator.config_entry.data.get("device_model")
             and self.entity_description.key == "power_setting"

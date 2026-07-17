@@ -1,49 +1,68 @@
-"""让聚焦测试直接加载仓库中的集成源码。
+"""Load the integration source from this repository for focused tests.
 
-覆盖目标：保证聚焦测试执行当前仓库源码，而不是环境中可能存在的其他安装副本。
-实现方式：在 pytest 进程内构造 custom_components.indevolt 包并执行仓库根入口。
-能够证明：相对导入和测试对象来自本次待审源码。
-不能证明：该加载方式不代表 HA 完整生命周期，也不能证明真实设备行为。
+Coverage goal: Ensure focused tests execute the current repository source, not
+another installed copy that may exist in the environment.
+Implementation: Construct the custom_components.indevolt package inside the
+pytest process and execute the repository-root entry point.
+Proves: Relative imports and tested objects come from the source under review.
+Does not prove: This loader does not represent the complete HA lifecycle or
+prove behavior on a physical device.
 """
 
-# 引入原因：仓库根不是可直接导入的标准包目录，需要从文件路径构造包。
-# 使用方式：spec_from_file_location 定义包入口，module_from_spec 创建对应模块对象。
-# 影响边界：模块只进入当前 pytest 进程，不安装到系统 Python 环境。
+# Reason: The repository root is not a standard importable package directory, so
+# the package must be constructed from a file path.
+# Usage: spec_from_file_location defines the package entry point and
+# module_from_spec creates the corresponding module object.
+# Impact: The module exists only in the current pytest process and is not installed
+# into the system Python environment.
 from importlib.util import module_from_spec, spec_from_file_location
 
-# 引入原因：测试命令可能从不同工作目录启动，不能依赖相对 cwd。
-# 使用方式：由 conftest.py 的固定位置推导仓库根和 __init__.py。
-# 影响边界：只解析本地路径，不读取或修改范围外目录。
+# Reason: Test commands may start in different working directories and cannot
+# rely on a relative current working directory.
+# Usage: Derive the repository root and __init__.py from conftest.py's fixed path.
+# Impact: This only resolves local paths; it neither reads nor modifies directories
+# outside the repository scope.
 from pathlib import Path
 
-# 引入原因：动态包必须登记到 sys.modules，并需要一个最小父包对象。
-# 使用方式：sys 保存包注册，ModuleType 构造 custom_components 父命名空间。
-# 影响边界：只改变当前测试进程内存，不覆盖磁盘文件或 HA 运行实例。
+# Reason: A dynamic package must be registered in sys.modules and needs a minimal
+# parent-package object.
+# Usage: sys stores the package registration and ModuleType creates the
+# custom_components parent namespace.
+# Impact: This changes only memory in the current test process; it does not
+# overwrite files or affect a running HA instance.
 import sys
 from types import ModuleType
 
 
-# 实现原因：导入路径和包名会被包注册、spec 和测试 import 重复使用。
-# 实现方式：集中定义仓库根与标准 HA 包名，避免辅助代码内部出现不同字面量。
-# 影响边界：只约束测试加载位置，不改变运行时安装目录。
+# Reason: Package registration, the spec, and test imports reuse the import path
+# and package name.
+# Implementation: Define the repository root and standard HA package name once to
+# prevent different literals inside the loader helper.
+# Impact: This constrains only the test load location and does not change the
+# runtime installation directory.
 INTEGRATION_ROOT = Path(__file__).parents[1]
 PACKAGE_NAME = "custom_components.indevolt"
 
 
 def _load_integration_package() -> None:
-    """在内存中构造 custom_components.indevolt 包，不复制运行文件。"""
-    # 实现原因：测试环境中可能尚不存在 custom_components 父包。
-    # 实现方式：用 setdefault 补齐最小命名空间，已有父包则直接复用。
-    # 影响边界：不覆盖其他测试预先注入的父包状态。
+    """Construct custom_components.indevolt in memory without copying files."""
+    # Reason: The custom_components parent package may not yet exist in the test
+    # environment.
+    # Implementation: Use setdefault to add the minimal namespace, while reusing
+    # an existing parent package when present.
+    # Impact: This does not overwrite parent-package state injected by other tests.
     custom_components = sys.modules.setdefault(
         "custom_components", ModuleType("custom_components")
     )
     if not hasattr(custom_components, "__path__"):
         custom_components.__path__ = []
 
-    # 实现原因：把仓库根文件当普通模块导入会破坏 .const 等相对导入。
-    # 实现方式：以 PACKAGE_NAME 和 submodule_search_locations 把 __init__.py 声明为包入口。
-    # 影响边界：spec 创建失败会终止测试收集，不会静默回退到其他安装副本。
+    # Reason: Importing the repository-root file as a regular module would break
+    # relative imports such as .const.
+    # Implementation: Declare __init__.py as the package entry point with
+    # PACKAGE_NAME and submodule_search_locations.
+    # Impact: A spec-construction failure stops test collection instead of silently
+    # falling back to another installed copy.
     spec = spec_from_file_location(
         PACKAGE_NAME,
         INTEGRATION_ROOT / "__init__.py",
@@ -52,15 +71,20 @@ def _load_integration_package() -> None:
     if spec is None or spec.loader is None:
         raise RuntimeError("Unable to load the INDEVOLT integration package")
 
-    # 实现原因：包入口执行时的相对导入需要先在 sys.modules 找到完整包名。
-    # 实现方式：先登记 module，再由 loader 执行当前仓库入口。
-    # 影响边界：只执行模块导入和服务定义，不启动 HA 生命周期或设备通信。
+    # Reason: Relative imports executed by the package entry point must find the
+    # complete package name in sys.modules first.
+    # Implementation: Register the module before the loader executes the current
+    # repository entry point.
+    # Impact: This executes only module imports and service definitions; it does
+    # not start the HA lifecycle or device communication.
     module = module_from_spec(spec)
     sys.modules[PACKAGE_NAME] = module
     spec.loader.exec_module(module)
 
 
-# 实现原因：测试模块收集时会立即 import custom_components.indevolt。
-# 实现方式：在 conftest 加载阶段先完成一次包注册。
-# 影响边界：作用域限定在本次 pytest 进程，退出后自动释放。
+# Reason: Test modules import custom_components.indevolt immediately during
+# collection.
+# Implementation: Complete package registration once while conftest is loading.
+# Impact: The scope is limited to this pytest process and is released when the
+# process exits.
 _load_integration_package()

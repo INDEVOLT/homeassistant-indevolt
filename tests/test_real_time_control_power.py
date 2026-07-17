@@ -1,59 +1,85 @@
-"""验证 Gen2 10800 W 输入边界，并防止 BK 与既有写入路径回归。
+"""Verify the Gen2 10800 W input boundary and prevent BK/write-path regressions.
 
-覆盖目标：同时核对 Action、number、YAML、共享常量以及 BK 非目标边界。
-实现方式：使用参数化、fake、monkeypatch 和配置解析验证调用顺序、payload 与零写入。
-能够证明：集成层的两个 Gen2 入口在 10800/10801 W 边界上保持一致。
-不能证明：测试不连接 HA 实例或真实设备，不能证明物理输出或命令读回。
+Coverage goal: Check the Action, number, YAML, shared constant, and non-target BK
+boundaries together.
+Implementation: Use parametrization, fakes, monkeypatching, and configuration
+parsing to verify call order, payloads, and zero-write behavior.
+Proves: Both Gen2 integration entry points agree at the 10800/10801 W boundary.
+Does not prove: The tests do not connect to an HA instance or physical device and
+cannot prove physical output or command readback.
 """
 
-# 引入原因：需要只读解析仓库中的 services.yaml，并避免依赖启动目录。
-# 使用方式：从测试文件位置推导仓库根，再读取服务配置进行一致性断言。
-# 影响边界：只读取当前仓库文件，不修改运行配置。
+# Reason: The test must parse the repository's services.yaml read-only without
+# depending on the process working directory.
+# Usage: Derive the repository root from the test file and read the service
+# configuration for consistency assertions.
+# Impact: This reads only the current repository file and does not modify runtime
+# configuration.
 from pathlib import Path
 
-# 引入原因：测试需要最小化模拟 ConfigEntry、ServiceCall 和 runtime_data。
-# 使用方式：SimpleNamespace 为 fake 对象提供生产代码实际访问的属性。
-# 影响边界：只提供测试属性容器，不替代完整 HA 生命周期或真实设备验收。
+# Reason: Tests need minimal ConfigEntry, ServiceCall, and runtime_data stand-ins.
+# Usage: SimpleNamespace gives fake objects the attributes accessed by production
+# code.
+# Impact: This provides only test attribute containers and does not replace the
+# full HA lifecycle or physical-device acceptance testing.
 from types import SimpleNamespace
 
-# 引入原因：需要异步用例、参数矩阵、monkeypatch 和异常断言。
-# 使用方式：pytest 驱动两个入口的代表值、越界值和 BK 回归矩阵。
-# 影响边界：只驱动 fake 对象，不触发网络或设备副作用。
+# Reason: The suite needs asynchronous cases, parameter matrices, monkeypatching,
+# and exception assertions.
+# Usage: Pytest drives representative values, out-of-range values, and BK
+# regression matrices across both entry points.
+# Impact: It drives only fake objects and triggers no network or device side effects.
 import pytest
 
-# 引入原因：YAML 不能直接导入 Python 共享常量，需要解析后独立核对。
-# 使用方式：safe_load 读取 selector，并与 Python 描述及 BK 旧边界比较。
-# 影响边界：只验证配置结构，不改变 services.yaml。
+# Reason: YAML cannot import the shared Python constant directly and must be
+# checked independently after parsing.
+# Usage: safe_load reads the selector for comparison with Python descriptions and
+# the existing BK boundary.
+# Impact: This validates only configuration structure and does not change
+# services.yaml.
 import yaml
 
-# 引入原因：产品合同要求越界请求返回 HA 标准验证错误。
-# 使用方式：pytest.raises 同时断言错误类型和 10800 W 错误信息。
-# 影响边界：只用于测试捕获，不改变生产异常处理。
+# Reason: The product contract requires out-of-range requests to return the
+# standard HA validation error.
+# Usage: pytest.raises asserts both the error type and the 10800 W error message.
+# Impact: This is used only for test capture and does not change production
+# exception handling.
 from homeassistant.exceptions import ServiceValidationError
 
-# 引入原因：复制 handler 逻辑会让测试与生产实现分叉。
-# 使用方式：调用真实 _register_services，取得实际闭包并验证写入顺序。
-# 影响边界：注册目标是 FakeServices，不会写入正在运行的 HA 实例。
+# Reason: Copying handler logic would let tests diverge from production behavior.
+# Usage: Call the real _register_services, capture its actual closure, and verify
+# write ordering.
+# Impact: Registration targets FakeServices and does not write to a running HA
+# instance.
 from custom_components.indevolt import _register_services
 
-# 引入原因：10801 W 必须在 registry 访问前失败，需要监测生产模块实际使用的引用。
-# 使用方式：monkeypatch 将 async_get 替换为 fake 或失败哨兵。
-# 影响边界：替换仅在单个测试内生效，不修改生产模块文件。
+# Reason: A 10801 W request must fail before registry access, so the reference
+# actually used by the production module must be observed.
+# Usage: Monkeypatch async_get with either a fake or a failure sentinel.
+# Impact: The replacement applies only within one test and does not modify the
+# production module file.
 from custom_components.indevolt import dr as device_registry_module
 
-# 引入原因：只检查 NUMBERS_GEN2 不能证明两个型号在 setup 时真的选择该列表。
-# 使用方式：调用真实 number.async_setup_entry，并替换实体构造以收集描述。
-# 影响边界：只替换测试中的实体构造，不创建 HA 实体。
+# Reason: Checking NUMBERS_GEN2 alone does not prove that setup selects it for
+# both target models.
+# Usage: Call the real number.async_setup_entry and replace entity construction to
+# collect the selected descriptions.
+# Impact: This replaces only entity construction in the test and creates no HA
+# entities.
 from custom_components.indevolt import number as number_platform
 
-# 引入原因：Action、number 与 YAML 必须围绕同一个 10800 W 真源接受审核。
-# 使用方式：直接断言常量值，并作为 selector 与实体描述的预期值。
-# 影响边界：只读取常量，不改变运行状态。
+# Reason: The Action, number, and YAML must be reviewed against the same 10800 W
+# source of truth.
+# Usage: Assert the constant directly and use it as the expected selector and
+# entity-description value.
+# Impact: This only reads the constant and does not change runtime state.
 from custom_components.indevolt.const import MAX_REAL_TIME_CONTROL_POWER
 
-# 引入原因：需要使用真实 Gen1/Gen2 描述和实体 setter，避免重写生产合同。
-# 使用方式：选择实际 power_setting 描述并直接调用 IndevoltNumberEntity setter。
-# 影响边界：API 被 FakeAPI 替代，不会产生真实 47016 写入。
+# Reason: The tests need the real Gen1/Gen2 descriptions and entity setter to
+# avoid reimplementing the production contract.
+# Usage: Select the actual power_setting description and call the
+# IndevoltNumberEntity setter directly.
+# Impact: FakeAPI replaces the API, so no physical point 47016 write occurs.
 from custom_components.indevolt.number import (
     NUMBERS_GEN1,
     NUMBERS_GEN2,
@@ -61,10 +87,13 @@ from custom_components.indevolt.number import (
 )
 
 
-# 覆盖目标：观察服务注册、点位 payload 和两类刷新调用，同时隔离外部副作用。
-# 实现方式：FakeServices 保存 handler，FakeAPI 记录写入，FakeCoordinator 记录刷新次数。
-# 能够证明：生产逻辑发起了哪些调用以及调用顺序是否保持不变。
-# 不能证明：fake 返回成功不代表真实设备接受命令或产生对应物理输出。
+# Coverage goal: Observe service registration, point payloads, and both refresh
+# calls while isolating external side effects.
+# Implementation: FakeServices stores handlers, FakeAPI records writes, and
+# FakeCoordinator counts refresh calls.
+# Proves: Which calls production logic makes and whether their ordering is preserved.
+# Does not prove: A successful fake response does not mean a physical device accepts
+# the command or produces the corresponding output.
 class FakeServices:
     def __init__(self) -> None:
         self.handlers = {}
@@ -100,10 +129,14 @@ class FakeCoordinator:
         self.refreshes += 1
 
 
-# 覆盖目标：保留合法 Action 的 registry → ConfigEntry → coordinator 解析链。
-# 实现方式：FakeRegistry 返回固定 entry_id，FakeConfigEntries 返回注入的 coordinator。
-# 能够证明：合法请求仍经过既有目标解析，而越界请求能否在该链路之前失败。
-# 不能证明：不会读取 HA 的真实 registry、ConfigEntry、权限或凭据状态。
+# Coverage goal: Preserve the registry → ConfigEntry → coordinator resolution
+# chain for valid Actions.
+# Implementation: FakeRegistry returns a fixed entry_id and FakeConfigEntries
+# returns the injected coordinator.
+# Proves: Valid requests still use the existing target resolution and out-of-range
+# requests can fail before that chain.
+# Does not prove: The test does not read the real HA registry, ConfigEntry,
+# permissions, or credential state.
 class FakeConfigEntries:
     def __init__(self, coordinator) -> None:
         self.entry = SimpleNamespace(runtime_data=coordinator)
@@ -119,10 +152,14 @@ class FakeRegistry:
         return SimpleNamespace(config_entries={"entry-id"})
 
 
-# 覆盖目标：让 Action 用例共享同一最小 HA 上下文和固定实时控制输入。
-# 实现方式：make_hass 组装服务与 ConfigEntry fake，service_call 生成标准 payload。
-# 能够证明：不同功率值只改变被测变量，不被样板差异干扰。
-# 不能证明：固定单目标 payload 不覆盖真实多目标、权限或并发行为。
+# Coverage goal: Give Action cases the same minimal HA context and fixed real-time
+# control inputs.
+# Implementation: make_hass assembles service and ConfigEntry fakes, while
+# service_call creates the standard payload.
+# Proves: Different power values change only the variable under test, without
+# fixture-template differences.
+# Does not prove: A fixed single-target payload does not cover real multi-target,
+# permission, or concurrency behavior.
 def make_hass(coordinator):
     return SimpleNamespace(
         services=FakeServices(),
@@ -143,10 +180,14 @@ def service_call(service: str, power: int):
     )
 
 
-# 覆盖目标：放宽上限后，合法 Action 的写点、顺序和 payload 必须保持不变。
-# 实现方式：对两个 Gen2 型号参数化 2400、2401、4800、7200、10800 W。
-# 能够证明：合法值依次写 47005/47015，功率原值透传，并只请求一次刷新。
-# 不能证明：fake 写入成功不代表设备实际输出对应功率。
+# Coverage goal: After raising the limit, valid Action write points, order, and
+# payloads must remain unchanged.
+# Implementation: Parameterize 2400, 2401, 4800, 7200, and 10800 W across both
+# Gen2 models.
+# Proves: Valid values write points 47005/47015 in order, pass the original power
+# value through, and request exactly one refresh.
+# Does not prove: A successful fake write does not mean a device physically outputs
+# the corresponding power.
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", ["SolidFlex2000", "PowerFlex2000"])
 @pytest.mark.parametrize("power", [2_400, 2_401, 4_800, 7_200, 10_800])
@@ -167,10 +208,14 @@ async def test_gen2_action_accepts_supported_power(monkeypatch, model, power) ->
     assert coordinator.refreshes == 0
 
 
-# 覆盖目标：10801 W 必须在 registry、47005、47015 和刷新之前失败。
-# 实现方式：把 registry 访问替换为失败哨兵，再调用真实服务 handler。
-# 能够证明：越界请求没有目标解析、API 写入或刷新。
-# 不能证明：该单目标用例不重新定义合法多目标请求的既有部分成功语义。
+# Coverage goal: A 10801 W request must fail before registry access, points
+# 47005/47015, and refresh.
+# Implementation: Replace registry access with a failure sentinel, then call the
+# real service handler.
+# Proves: An out-of-range request performs no target resolution, API write, or
+# refresh.
+# Does not prove: This single-target case does not redefine the existing partial-
+# success semantics of valid multi-target requests.
 @pytest.mark.asyncio
 async def test_solidflex_action_rejects_10801_before_registry_or_api(
     monkeypatch,
@@ -194,10 +239,13 @@ async def test_solidflex_action_rejects_10801_before_registry_or_api(
     assert coordinator.refreshes == 0
 
 
-# 覆盖目标：共享 handler 中的 Gen2 判断不能误伤 BK Action。
-# 实现方式：通过 set_bk1600_work_mode 发送既有 1200 W 请求并记录完整调用。
-# 能够证明：BK 仍使用原点位、payload 和一次请求刷新。
-# 不能证明：该用例不扩大 BK 上限，也不覆盖 BK 的全部真实设备状态。
+# Coverage goal: The Gen2 condition in the shared handler must not affect the BK
+# Action.
+# Implementation: Send the existing 1200 W request through set_bk1600_work_mode
+# and record the complete call sequence.
+# Proves: BK retains its original points, payload, and one requested refresh.
+# Does not prove: This case neither raises the BK limit nor covers every physical
+# BK device state.
 @pytest.mark.asyncio
 async def test_bk_action_keeps_existing_selector_maximum(monkeypatch) -> None:
     coordinator = FakeCoordinator("BK1600")
@@ -216,10 +264,13 @@ async def test_bk_action_keeps_existing_selector_maximum(monkeypatch) -> None:
     assert coordinator.refreshes == 0
 
 
-# 覆盖目标：隔离验证真实 description 与 setter 合同，避免无关 HA 生命周期干扰。
-# 实现方式：用 object.__new__ 创建实体，再只注入 coordinator 和 description。
-# 能够证明：setter 对实际描述的写点、边界和刷新行为。
-# 不能证明：不覆盖完整实体构造与注册生命周期；setup 路由由独立用例验证。
+# Coverage goal: Isolate the real description/setter contract from unrelated HA
+# lifecycle behavior.
+# Implementation: Create the entity with object.__new__, then inject only the
+# coordinator and description.
+# Proves: Setter points, boundaries, and refresh behavior for the real description.
+# Does not prove: Full entity construction and registration are not covered; a
+# separate case verifies setup routing.
 def make_number_entity(coordinator, description):
     entity = object.__new__(IndevoltNumberEntity)
     entity.coordinator = coordinator
@@ -227,10 +278,14 @@ def make_number_entity(coordinator, description):
     return entity
 
 
-# 覆盖目标：Gen2 number 必须独立接受与 Action 相同的合法功率矩阵。
-# 实现方式：直接调用真实实体 setter，并记录 FakeAPI 与刷新计数。
-# 能够证明：原值写入 47016、没有截断换算，并执行一次完整刷新。
-# 不能证明：不承诺真实设备接受命令或输出对应功率。
+# Coverage goal: The Gen2 number must independently accept the same valid power
+# matrix as the Action.
+# Implementation: Call the real entity setter directly and record FakeAPI and
+# refresh counts.
+# Proves: The original value is written to point 47016 without truncation or
+# conversion, followed by one full refresh.
+# Does not prove: The test does not promise that a physical device accepts the
+# command or produces the corresponding power.
 @pytest.mark.asyncio
 @pytest.mark.parametrize("power", [2_400, 2_401, 4_800, 7_200, 10_800])
 async def test_gen2_number_accepts_supported_power(power) -> None:
@@ -244,10 +299,13 @@ async def test_gen2_number_accepts_supported_power(power) -> None:
     assert coordinator.refreshes == 1
 
 
-# 覆盖目标：直接实体调用绕过 UI 时，10801 W 仍必须零写入失败。
-# 实现方式：直接向真实 setter 传入 10801，并捕获标准验证错误。
-# 能够证明：set_fn、47016 和刷新均未执行。
-# 不能证明：不验证 HA 前端如何展示错误，也不测试更低层 API 的通用输入校验。
+# Coverage goal: A direct entity call that bypasses the UI must reject 10801 W
+# with zero writes.
+# Implementation: Pass 10801 directly to the real setter and capture the standard
+# validation error.
+# Proves: set_fn, point 47016, and refresh are never executed.
+# Does not prove: The test does not verify HA frontend error presentation or the
+# lower-level API's general input validation.
 @pytest.mark.asyncio
 async def test_gen2_number_rejects_10801_before_write() -> None:
     coordinator = FakeCoordinator()
@@ -262,10 +320,14 @@ async def test_gen2_number_rejects_10801_before_write() -> None:
     assert coordinator.refreshes == 0
 
 
-# 覆盖目标：Gen1 BK 共用实体类时仍保持 1200/800 W 动态边界。
-# 实现方式：参数化状态 1001/1000，并以各自最大值执行真实 setter。
-# 能够证明：BK 最大值计算及原 47016 写入和刷新合同未回归。
-# 不能证明：不为 BK 引入 10800 W 能力，也不覆盖其他设备状态组合。
+# Coverage goal: Gen1 BK retains its dynamic 1200/800 W boundary while sharing the
+# entity class.
+# Implementation: Parameterize states 1001/1000 and call the real setter at each
+# corresponding maximum.
+# Proves: BK maximum calculation and the original point 47016 write/refresh contract
+# have not regressed.
+# Does not prove: This does not add 10800 W capability to BK or cover other device-
+# state combinations.
 @pytest.mark.asyncio
 @pytest.mark.parametrize(("state", "maximum"), [(1001, 1_200), (1000, 800)])
 async def test_gen1_number_keeps_existing_dynamic_boundary(state, maximum) -> None:
@@ -283,10 +345,13 @@ async def test_gen1_number_keeps_existing_dynamic_boundary(state, maximum) -> No
     assert coordinator.refreshes == 1
 
 
-# 覆盖目标：SolidFlex2000 与 PowerFlex2000 在 setup 时都必须选择 Gen2 描述。
-# 实现方式：替换实体构造为描述收集器，再调用真实 async_setup_entry。
-# 能够证明：两个型号均暴露 min=50、max=10800、step=1。
-# 不能证明：不创建真实实体，也不验证范围外型号或 HA UI 渲染。
+# Coverage goal: SolidFlex2000 and PowerFlex2000 must both select the Gen2
+# descriptions during setup.
+# Implementation: Replace entity construction with a description collector, then
+# call the real async_setup_entry.
+# Proves: Both models expose min=50, max=10800, and step=1.
+# Does not prove: No real entity is created, and out-of-scope models and HA UI
+# rendering are not verified.
 @pytest.mark.asyncio
 @pytest.mark.parametrize("model", ["SolidFlex2000", "PowerFlex2000"])
 async def test_gen2_setup_exposes_real_time_number(monkeypatch, model) -> None:
@@ -315,10 +380,14 @@ async def test_gen2_setup_exposes_real_time_number(monkeypatch, model) -> None:
     assert power.native_step == 1
 
 
-# 覆盖目标：防止 YAML selector、Python 共享常量和实体描述后续发生漂移。
-# 实现方式：解析 services.yaml，并与 Gen1/Gen2 实际描述和常量逐字段比较。
-# 能够证明：目标入口均为 10800 W，且 BK selector/描述保持原边界。
-# 不能证明：这是测试时静态一致性检查，不会在运行时自动修复错误配置。
+# Coverage goal: Prevent later drift among the YAML selector, shared Python
+# constant, and entity descriptions.
+# Implementation: Parse services.yaml and compare it field by field with the real
+# Gen1/Gen2 descriptions and constant.
+# Proves: Target entry points use 10800 W and the BK selector/descriptions retain
+# their existing boundaries.
+# Does not prove: This is a static test-time consistency check and does not repair
+# an incorrect runtime configuration automatically.
 def test_yaml_and_python_use_the_same_maximum() -> None:
     services = yaml.safe_load((Path(__file__).parents[1] / "services.yaml").read_text())
     selector = services["set_solidflex_powerflex_work_mode"]["fields"]["power"][

@@ -1,14 +1,21 @@
 <!--
-原因：README 面向安装和日常使用，不适合承载各版本之间的功能差异。
-目标：为每个版本提供独立、可追溯且便于审核的用户可见变更记录。
-实现：按版本倒序记录本地历史中的 1.2、1.1 和 1.0，只保留功能变化、兼容边界和
-用户可见的文档变化；1.2 先说明原有 2400 W 输入上限造成的问题，再列出文档交付。
-影响：审核者可以单独判断各版本改变了什么，README 的用户指南定位保持不变。
-边界：不记录部署或版本切换操作指南、内部函数、测试命令或开发环境，也不宣称真实
-设备已经输出 10800 W。
-验证：本地 manifest.json 历史确认版本为 1.0、1.1 和 1.2；各版本内容已对照对应版本的
-配置和实体差异。
-风险：若混入操作指南，变更记录与 README 的职责会再次重叠，因此只保留版本事实。
+Reason: README is for installation and daily use, so it is not the right place
+for functional differences between versions.
+Goal: Provide a separate, traceable, and reviewable user-visible change record
+for each version.
+Implementation: Record local-history versions 1.2, 1.1, and 1.0 in reverse order,
+keeping only functional changes, compatibility boundaries, and user-visible
+documentation changes. Version 1.2 first identifies the problem caused by the
+previous 2400 W input limit and then lists the documentation deliverables.
+Impact: Reviewers can judge what each version changed independently, while README
+remains focused on user guidance.
+Scope: Do not record deployment or version-switching procedures, internal functions,
+test commands, or development environments, and do not claim that a physical device
+has produced 10800 W.
+Validation: Local manifest.json history confirms versions 1.0, 1.1, and 1.2; each
+entry was checked against the configuration and entity differences in that version.
+Risk: Adding procedural guidance would overlap with README again, so this file keeps
+only version facts.
 -->
 
 # Change log
