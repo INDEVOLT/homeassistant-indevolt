@@ -1,6 +1,12 @@
-from __future__ import annotations
-
 """Home Assistant integration for indevolt device."""
+
+# Reason: A string placed after a future import is not recognized as the module
+# docstring.
+# Implementation: Move the existing module description to the first line and put
+# the future import immediately after it, satisfying Python's placement rules.
+# Impact: This only corrects module metadata and static-check results; integration
+# loading and service execution are unchanged.
+from __future__ import annotations
 
 import logging
 from typing import Any
@@ -9,7 +15,13 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
-from .const import DOMAIN, PLATFORMS
+# Reason: Hard-coding 10800 separately in the Action and number paths could let
+# their limits drift during later maintenance.
+# Usage: The service handler uses this constant to enforce the real-time power
+# limit before target resolution and device writes.
+# Impact: This adds only a read-only constant reference; DOMAIN, PLATFORMS, load
+# order, and import side effects are unchanged.
+from .const import DOMAIN, MAX_REAL_TIME_CONTROL_POWER, PLATFORMS
 from .coordinator import IndevoltDeviceUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +91,37 @@ def _register_services(hass: HomeAssistant) -> None:
             raise ServiceValidationError("No device selected")
 
         mode: str = call.data["mode"]
+
+        # Reason: The services.yaml selector constrains only the UI, so a direct
+        # service call could still submit 10801 W.
+        # Goal: Apply the same pre-write limit to every SolidFlex/PowerFlex
+        # real-time control entry point.
+        # Implementation: After reading mode, restrict the check to this service
+        # and Real-Time Control, then compare against the shared constant before
+        # registry access, ConfigEntry resolution, and the device loop; raise a
+        # validation error immediately when the value is out of range.
+        # Impact: Requests of 10801 W or more fail early with a clear validation
+        # error; requests at or below 10800 W keep the original points, payload,
+        # and refresh order.
+        # Scope: BK Actions, non-real-time modes, multi-target ordering, points
+        # 47005/47015, and the refresh contract are unchanged.
+        # Validation: The 10801 W test replaces registry access with a failure
+        # sentinel and asserts that API writes and refreshes remain at zero.
+        # Trade-off: Validate at the handler's earliest common entry point instead
+        # of relying only on the UI or broadening the change at the API layer.
+        # Risk: Moving the check into the device loop could create partial success,
+        # with an earlier target written before a later target fails.
+        # Rollback: Remove this pre-write check and the shared constant reference to
+        # restore the old limit behavior; no persistent-data migration is involved.
+        if (
+            call.service == "set_solidflex_powerflex_work_mode"
+            and mode == "Real-Time Control"
+        ):
+            power: int = call.data.get("power", 0)
+            if power > MAX_REAL_TIME_CONTROL_POWER:
+                raise ServiceValidationError(
+                    f"Power must not exceed {MAX_REAL_TIME_CONTROL_POWER} W"
+                )
 
         MODE_MAP = {
             "Self-Consumed Prioritized": 1,
