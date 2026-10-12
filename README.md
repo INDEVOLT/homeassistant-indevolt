@@ -212,6 +212,31 @@ integration entry, devices, and entities load normally.
 
 9. Click **Save** to complete the automation setup.
 
+### Simple actions (charge, discharge, stop, mode switches)
+
+In addition to the work mode actions above, the following actions are available.
+They use the same Real-Time Control commands and need no mode or state selection:
+
+| Action | Effect |
+| --- | --- |
+| `indevolt.charge` | Real-Time Control, charging at `power` W until `soc` % (default 100) |
+| `indevolt.discharge` | Real-Time Control, discharging at `power` W until `soc` % (default 5) |
+| `indevolt.stop` | Real-Time Control, Standby |
+| `indevolt.set_realtime_mode` | Switch to Real-Time Control |
+| `indevolt.set_self_consumption_mode` | Switch to Self-Consumed Prioritized (SolidFlex/PowerFlex only) |
+| `indevolt.set_schedule_mode` | Switch to Charge/Discharge Schedule (SolidFlex/PowerFlex only) |
+
+The device target is optional when only one INDEVOLT device is configured.
+Limits: SolidFlex2000/PowerFlex2000 50~10800 W and SOC 5~100 %; BK1600/BK1600 Ultra
+charge 0~1200 W, discharge 0~800 W.
+
+```yaml
+action: indevolt.charge
+data:
+  power: 800
+  soc: 90
+```
+
 ## FAQ
 
 | Problem Description | Solutions |
