@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ConfigEntryNotReady, ServiceValidationError
 from homeassistant.helpers import device_registry as dr
@@ -21,7 +21,14 @@ from homeassistant.helpers import device_registry as dr
 # limit before target resolution and device writes.
 # Impact: This adds only a read-only constant reference; DOMAIN, PLATFORMS, load
 # order, and import side effects are unchanged.
-from .const import DOMAIN, MAX_REAL_TIME_CONTROL_POWER, PLATFORMS
+from .const import (
+    BK1600_MAX_CHARGE_POWER,
+    BK1600_MAX_DISCHARGE_POWER,
+    DOMAIN,
+    MAX_REAL_TIME_CONTROL_POWER,
+    MIN_REAL_TIME_CONTROL_POWER,
+    PLATFORMS,
+)
 from .coordinator import IndevoltDeviceUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +86,77 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             hass.data.pop(DOMAIN)
     
     return unload_ok
+
+# Real-time control state values written to point 47015.
+STATE_STANDBY = 0
+STATE_CHARGING = 1
+STATE_DISCHARGING = 2
+
+
+def _is_bk1600(entry: ConfigEntry) -> bool:
+    """Return True when the config entry is a BK1600 / BK1600 Ultra."""
+    return "BK1600" in (entry.data.get("device_model") or "")
+
+
+def _resolve_target_entries(hass: HomeAssistant, call: ServiceCall) -> list[ConfigEntry]:
+    """Return the config entries targeted by a simple control action.
+
+    The device target is optional: when none is given and exactly one INDEVOLT
+    device is loaded, that device is used.
+    """
+    device_ids = call.data.get("device_id")
+    if isinstance(device_ids, str):
+        device_ids = [device_ids]
+
+    if not device_ids:
+        entries = [
+            entry
+            for entry in hass.config_entries.async_entries(DOMAIN)
+            if entry.state is ConfigEntryState.LOADED
+        ]
+        if len(entries) == 1:
+            return entries
+        raise ServiceValidationError(
+            "No device selected: choose a target device when several INDEVOLT "
+            "devices are configured"
+        )
+
+    device_registry = dr.async_get(hass)
+    entries = []
+    for device_id in device_ids:
+        device = device_registry.async_get(device_id)
+        entry_id = next(iter(device.config_entries), None) if device else None
+        entry = hass.config_entries.async_get_entry(entry_id) if entry_id else None
+        if entry is None:
+            raise ServiceValidationError(f"Device {device_id} not found")
+        entries.append(entry)
+    return entries
+
+
+def _validate_real_time_request(
+    entry: ConfigEntry, state: int, power: int, soc: int
+) -> None:
+    """Validate power and SOC for a charge / discharge request."""
+    if _is_bk1600(entry):
+        min_power = 0
+        max_power = (
+            BK1600_MAX_CHARGE_POWER
+            if state == STATE_CHARGING
+            else BK1600_MAX_DISCHARGE_POWER
+        )
+        min_soc = 0
+    else:
+        min_power = MIN_REAL_TIME_CONTROL_POWER
+        max_power = MAX_REAL_TIME_CONTROL_POWER
+        min_soc = 5
+
+    if not min_power <= power <= max_power:
+        raise ServiceValidationError(
+            f"Power must be between {min_power} and {max_power} W"
+        )
+    if not min_soc <= soc <= 100:
+        raise ServiceValidationError(f"SOC must be between {min_soc} and 100 %")
+
 
 def _register_services(hass: HomeAssistant) -> None:
     """Register Indevolt services."""
@@ -178,3 +256,76 @@ def _register_services(hass: HomeAssistant) -> None:
         "set_bk1600_work_mode",
         handle_set_work_mode,
     )
+
+    # Simple control actions.
+    # These are thin wrappers around the same points used by
+    # set_*_work_mode (47005 work mode, 47015 real-time state/power/SOC). The
+    # device target is optional and defaults to the only loaded INDEVOLT device.
+
+    async def _set_work_mode(call: ServiceCall, mode: int, *, bk1600: bool) -> None:
+        entries = _resolve_target_entries(hass, call)
+        if not bk1600 and any(_is_bk1600(entry) for entry in entries):
+            raise ServiceValidationError(
+                "This work mode is not supported by BK1600 / BK1600 Ultra"
+            )
+
+        for entry in entries:
+            coordinator = entry.runtime_data
+            await coordinator.api.set_data(point=47005, value=[mode])
+            await coordinator.async_request_refresh()
+
+    async def _set_real_time_state(
+        call: ServiceCall, state: int, *, power: int, soc: int
+    ) -> None:
+        entries = _resolve_target_entries(hass, call)
+
+        # Validate every target before the first write to avoid partial success.
+        if state != STATE_STANDBY:
+            for entry in entries:
+                _validate_real_time_request(entry, state, power, soc)
+
+        for entry in entries:
+            coordinator = entry.runtime_data
+            await coordinator.api.set_data(point=47005, value=[4])
+            await coordinator.api.set_data(point=47015, value=[state, power, soc])
+            await coordinator.async_request_refresh()
+
+    def _read_power_and_soc(call: ServiceCall, default_soc: int) -> tuple[int, int]:
+        try:
+            power = int(call.data["power"])
+            soc = int(call.data.get("soc", default_soc))
+        except KeyError as err:
+            raise ServiceValidationError("power is required") from err
+        except (TypeError, ValueError) as err:
+            raise ServiceValidationError("power and soc must be numbers") from err
+        return power, soc
+
+    async def handle_charge(call: ServiceCall) -> None:
+        power, soc = _read_power_and_soc(call, default_soc=100)
+        await _set_real_time_state(call, STATE_CHARGING, power=power, soc=soc)
+
+    async def handle_discharge(call: ServiceCall) -> None:
+        power, soc = _read_power_and_soc(call, default_soc=5)
+        await _set_real_time_state(call, STATE_DISCHARGING, power=power, soc=soc)
+
+    async def handle_stop(call: ServiceCall) -> None:
+        await _set_real_time_state(call, STATE_STANDBY, power=0, soc=5)
+
+    async def handle_set_realtime_mode(call: ServiceCall) -> None:
+        await _set_work_mode(call, 4, bk1600=True)
+
+    async def handle_set_self_consumption_mode(call: ServiceCall) -> None:
+        await _set_work_mode(call, 1, bk1600=False)
+
+    async def handle_set_schedule_mode(call: ServiceCall) -> None:
+        await _set_work_mode(call, 5, bk1600=False)
+
+    for service, handler in (
+        ("charge", handle_charge),
+        ("discharge", handle_discharge),
+        ("stop", handle_stop),
+        ("set_realtime_mode", handle_set_realtime_mode),
+        ("set_self_consumption_mode", handle_set_self_consumption_mode),
+        ("set_schedule_mode", handle_set_schedule_mode),
+    ):
+        hass.services.async_register(DOMAIN, service, handler)

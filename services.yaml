@@ -115,3 +115,101 @@ set_bk1600_work_mode:
           max: 100
           step: 1
           unit_of_measurement: "%"
+
+# Simple control actions. The device target is optional: with a single INDEVOLT
+# device configured it is used automatically.
+charge:
+  name: Charge
+  description: Start charging in Real-Time Control mode until the target SOC is reached.
+
+  target:
+    device:
+      integration: indevolt
+
+  fields:
+    power:
+      name: Power (W)
+      description: SolidFlex/PowerFlex 50~10800W; BK1600/BK1600 Ultra 0~1200W
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 10800
+          step: 10
+          unit_of_measurement: W
+
+    soc:
+      name: Target SOC (%)
+      description: Stop charging at this SOC (default 100)
+      required: false
+      default: 100
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+discharge:
+  name: Discharge
+  description: Start discharging in Real-Time Control mode until the target SOC is reached.
+
+  target:
+    device:
+      integration: indevolt
+
+  fields:
+    power:
+      name: Power (W)
+      description: SolidFlex/PowerFlex 50~10800W; BK1600/BK1600 Ultra 0~800W
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 10800
+          step: 10
+          unit_of_measurement: W
+
+    soc:
+      name: Target SOC (%)
+      description: Stop discharging at this SOC (default 5)
+      required: false
+      default: 5
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          unit_of_measurement: "%"
+
+stop:
+  name: Stop
+  description: Stop charging or discharging (Real-Time Control, Standby).
+
+  target:
+    device:
+      integration: indevolt
+
+set_realtime_mode:
+  name: Set Real-Time Control Mode
+  description: Switch the device to Real-Time Control mode.
+
+  target:
+    device:
+      integration: indevolt
+
+set_self_consumption_mode:
+  name: Set Self-Consumed Prioritized Mode
+  description: Switch the device to Self-Consumed Prioritized mode (SolidFlex/PowerFlex only).
+
+  target:
+    device:
+      integration: indevolt
+
+set_schedule_mode:
+  name: Set Charge/Discharge Schedule Mode
+  description: Switch the device to Charge/Discharge Schedule mode (SolidFlex/PowerFlex only).
+
+  target:
+    device:
+      integration: indevolt

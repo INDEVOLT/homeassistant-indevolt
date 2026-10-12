@@ -22,6 +22,17 @@ only version facts.
 
 This file records user-visible changes to the INDEVOLT integration.
 
+## Unreleased
+
+### Added
+
+- Added simple automation actions: `charge`, `discharge`, `stop`,
+  `set_realtime_mode`, `set_self_consumption_mode` and `set_schedule_mode`.
+  They reuse the existing work mode and Real-Time Control commands, apply the
+  existing power limits per model, and use the only configured device when no
+  target is selected. The existing work mode actions are unchanged.
+- The Simplified Chinese documents are not updated yet.
+
 ## 1.2
 
 ### Fixed

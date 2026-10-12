@@ -18,6 +18,10 @@ DEFAULT_SCAN_INTERVAL = 30
 # Trade-off: Use a shared constant instead of hard-coding the value separately in
 # two Python files.
 MAX_REAL_TIME_CONTROL_POWER = 10800
+# Real-time control limits used by the simple control actions (charge, discharge).
+MIN_REAL_TIME_CONTROL_POWER = 50
+BK1600_MAX_CHARGE_POWER = 1200
+BK1600_MAX_DISCHARGE_POWER = 800
 PLATFORMS = [
     Platform.SENSOR,
     Platform.SWITCH,
